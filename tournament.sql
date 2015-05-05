@@ -1,4 +1,4 @@
--- Table definitions for the tournament project.
+  -- Table definitions for the tournament project.
 --
 -- Put your SQL 'create table' statements in this file; also 'create view'
 -- statements if you choose to use it.
@@ -6,26 +6,27 @@
 -- You can write comments in this file by starting them with two dashes, like
 -- these lines here.
 
--- Create the table that will hold all players.
+DROP DATABASE IF EXISTS tournament;
+CREATE DATABASE tournament;
+\c tournament;
+
+-- Create a table of just the players, mapping their names to a unique id
+
 CREATE TABLE players (
-	id SERIAL PRIMARY KEY,
-	p_name TEXT NOT NULL
+    id serial,
+    name text,
+    PRIMARY KEY(id)
 );
 
--- Create the table that will hold all match results.
--- Each match will have 2 results.  One for the loser and one for the winner.
-CREATE TABLE results (
-	id integer REFERENCES players (id),
-	opponent integer REFERENCES players (id),  
-	result boolean NOT NULL,
-	PRIMARY KEY (id, opponent)
+CREATE TABLE matches (
+    player_id integer,
+    wins integer,
+    matches integer
 );
 
--- Create a view that will be used to return player rankings.
-CREATE VIEW standings as
-	SELECT players.id, players.p_name,
-		Count(nullif(results.result, false)) AS wins,
-        Count(results.id) AS matches
-    FROM players LEFT JOIN results ON players.id = results.id
-    GROUP BY players.id ORDER BY wins desc;
 
+-- View is created to help fetching records in player_standings method.
+
+CREATE VIEW standings AS 
+    SELECT players.id, players.name, matches.wins, matches.matches from players, matches 
+    WHERE players.id = matches.player_id ORDER BY matches.matches, matches.wins DESC;

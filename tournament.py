@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# 
+#
 # tournament.py -- implementation of a Swiss-system tournament
 #
 
@@ -10,52 +10,67 @@ def connect():
     """Connect to the PostgreSQL database.  Returns a database connection."""
     return psycopg2.connect("dbname=tournament")
 
+
 def deleteMatches():
     """Remove all the match records from the database."""
-    conn = connect()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM results")
-    conn.commit()
-    conn.close()
+    db = connect()
+    c = db.cursor()
+
+    c.execute("DELETE FROM matches")
+
+    db.commit()
+    db.close()
+
 
 def deletePlayers():
     """Remove all the player records from the database."""
-    conn = connect()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM players")
-    conn.commit()
-    conn.close()
+    db = connect()
+    c = db.cursor()
+
+    c.execute("DELETE FROM players")
+
+    db.commit()
+    db.close()
+
 
 def countPlayers():
-    """Returns the number of players currently registered."""
-    conn = connect()
-    cursor = conn.cursor()
-    cursor.execute("SELECT count(*) FROM players")
-    playerCount = cursor.fetchone()[0]
-    conn.close()
-    return playerCount
+    """Return the number of players currently registered."""
+    db = connect()
+    c = db.cursor()
+
+    c.execute("SELECT count(*) FROM players")
+    count = c.fetchone()[0]
+
+    db.close()
+
+    return count
+
 
 def registerPlayer(name):
-    """Adds a player to the tournament database.
-  
+    """Add a player to the tournament database.
     The database assigns a unique serial id number for the player.  (This
     should be handled by your SQL database schema, not in your Python code.)
-  
+    #### UPDATE ####
     Args:
       name: the player's full name (need not be unique).
     """
-    conn = connect()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO players (p_name) VALUES (%s)", (name,))
-    conn.commit()
-    conn.close()
+    db = connect()
+    c = db.cursor()
+
+    c.execute("INSERT INTO players (name) VALUES (%s)", (name, ))
+
+    c.execute("SELECT id FROM players ORDER BY id DESC")
+    latest_id = c.fetchone()
+    c.execute("INSERT INTO matches VALUES (%s, 0, 0)", (latest_id, ))
+
+    db.commit()
+    db.close()
+
 
 def playerStandings():
-    """Returns a list of the players and their win records, sorted by wins.
-
-    The first entry in the list should be the player in first place, or a player
-    tied for first place if there is currently a tie.
-
+    """Return a list of the players and their win records, sorted by wins.
+    The first entry in the list should be the player in first place, or a
+    player tied for first place if there is currently a tie.
     Returns:
       A list of tuples, each of which contains (id, name, wins, matches):
         id: the player's unique id (assigned by the database)
@@ -63,36 +78,39 @@ def playerStandings():
         wins: the number of matches the player has won
         matches: the number of matches the player has played
     """
-    conn = connect()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM standings")
-    playerStands = cursor.fetchall()
-    conn.close()
-    return playerStands
+    db = connect()
+    c = db.cursor()
+
+    c.execute("SELECT * FROM standings")
+    stand = c.fetchall()
+
+    db.close()
+
+    return stand
+
 
 def reportMatch(winner, loser):
-    """Records the outcome of a single match between two players.
-
+    """Record the outcome of a single match between two players.
     Args:
       winner:  the id number of the player who won
       loser:  the id number of the player who lost
     """
-    conn = connect()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO results VALUES (%s,%s,true)", (winner,loser))
-    cursor.execute("INSERT INTO results VALUES (%s,%s,false)", (loser,winner))
-    conn.commit()
-    conn.close()
-    
- 
+    db = connect()
+    c = db.cursor()
+
+    c.execute("UPDATE matches SET matches = matches + 1 WHERE player_id = %s OR player_id = %s", (winner, loser, ))
+    c.execute("UPDATE matches SET wins = wins + 1 WHERE player_id = %s", (winner, ))
+
+    db.commit()
+    db.close()
+
+
 def swissPairings():
-    """Returns a list of pairs of players for the next round of a match.
-  
+    """Return a list of pairs of players for the next round of a match.
     Assuming that there are an even number of players registered, each player
     appears exactly once in the pairings.  Each player is paired with another
     player with an equal or nearly-equal win record, that is, a player adjacent
     to him or her in the standings.
-  
     Returns:
       A list of tuples, each of which contains (id1, name1, id2, name2)
         id1: the first player's unique id
@@ -100,51 +118,17 @@ def swissPairings():
         id2: the second player's unique id
         name2: the second player's name
     """
-    # get a list that only includes id and name from our standings view
-    conn = connect()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id,p_name FROM standings")
-    pair = cursor.fetchall()
-    conn.close()
-    # because the rules state that players should never match up more than once
-    # we use playedCount to check that and build out a list of pairings
-    # that hopefully includes everyone but has no repeat matches between rounds
-    # TODO: handle odd player amounts
-    hasPartner = []
-    pairsList = []
-    pairLen = len(pair)
-    for index, player1 in enumerate(pair):
-        if not index in hasPartner:
-            for index2 in range(index, pairLen):
-                if playedCount(player1[0],pair[index2][0]) == 0:
-                    hasPartner.extend([index,index2])
-                    pairsList.append((player1[0],player1[1],pair[index2][0],pair[index2][1]))
-                    break
-    return pairsList
+    db = connect()
+    c = db.cursor()
 
+    c.execute("SELECT id, name FROM standings")
+    player_list = c.fetchall()
 
+    db.close()
 
-def playedCount(player1, player2):
-    """Checks if the players have already been matched to avoid
-    multiple pairings of the same players, which is against Swiss
-    tournament rules (and database schema restrictions).  It will
-    return early with a 1 if player1 and player2 are the same id
+    plist = []
+    while player_list:
+        plist.append(player_list[0]+player_list[1])
+        del player_list[0:2]
 
-    Ars:
-      player1: the id of the player looking for an opponent
-      player2: the id of the potential opponent
-
-    Returns:
-      numberPlayed: A number representing the count of times these
-      opponenets have previously played (Expected to be 0 or 1)
-    """
-    if player1 == player2:
-        #early return when trying to match against themselves
-        return 1
-    conn = connect()
-    cursor = conn.cursor()
-    cursor.execute("""SELECT Count(id) AS CountOfid FROM results
-        WHERE id = %s and opponent = %s""", (player1,player2))
-    numberPlayed = cursor.fetchone()[0]
-    conn.close()
-    return numberPlayed
+    return plist
